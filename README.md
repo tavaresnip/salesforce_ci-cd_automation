@@ -6,6 +6,7 @@ Here we're going to introduce how to automate **CI/CD** *(Continous Integration/
 ### Expected Results
 What is expected to be is when you commit changes to the feature branch and open a pull request to upper-level branch (uat, master, production, etc...), it'll be validated and then if everything is ok you'll be able to merge and considering still no errors, your changes will be deployed to org.  (check screenshot illustration)
 
+
 ```diff
 - pink dashed lines are validation
 ```
