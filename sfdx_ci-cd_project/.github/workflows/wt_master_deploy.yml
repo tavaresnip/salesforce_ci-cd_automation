@@ -1,0 +1,128 @@
+## WORKFLOW ACTION TO DEPLOY DIFFERENCE TO YOUR ORG USING DELTA
+## PROJECT WAS MADE FOR BRANCH => BRANCH DIFFERENCE, ADAPTED TO SELF-CHECK DIFFERENCE (CURRENT COMMIT ==DIFF==> PREVIOUS COMMIT => DEPLOY DIFF)
+## Adam Tavares | 2021-11-12
+## History: 
+#### 1. 2021-11-14: updated to check difference only on force-app folder
+## RESOURCE ON BOTTOM
+name: Salesforce Workflow Developer Org
+on:
+  push:
+    branches: [ master ]
+    paths:
+            - 'force-app/**'         
+
+jobs:
+  build:
+    name: DEPLOYING DATA
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        ref: ${{ github.ref }}
+        fetch-depth: 0
+      if: github.event_name == 'push'
+    - uses: actions/setup-node@v1
+      with:
+        node-version: '>=14'
+        check-latest: true
+        
+    ## 1. Install Salesforce CLI
+    - name: 1. INSTALL SALESFORCE CLI
+      run: |
+        npm install sfdx-cli
+        node_modules/sfdx-cli/bin/run --version
+        node_modules/sfdx-cli/bin/run plugins --core
+
+    ## 2. INSTALL DELTA SALESFORCE PLUGIN (Non-official)
+    - name: 2. INSTALL DELTA SALESFORCE PLUGIN
+      run: |
+        echo y | node_modules/sfdx-cli/bin/run plugins:install sfdx-git-delta
+
+    ## 3. INSTALL YQ
+    - name: 3. INSTALL YQ
+      run: |
+        pip3 install yq
+
+    ## 4. GET MODIFFIED FILES BETWEEN LAST 2 COMMITS
+    - name: 4. GETTING DIFFERENCE FROM LAST COMMIT AND BRANCH 
+      run: |
+        node_modules/sfdx-cli/bin/run sgd:source:delta --to 'HEAD' --from 'HEAD^' -s force-app --output .
+        echo '--- Package.xml generated with added and modified metadata ---'
+        echo '#FILE: package.xml :'
+        cat package/package.xml
+
+    ## 5. GET TEST CLASSES TO RUN
+    - name: 5. GET TEST CLASSES TO RUN
+      run: |
+        xq . < package/package.xml > package_json
+        echo '#FILE: package_json'
+        cat package_json    
+        xq . < package/package.xml | jq -r '.Package.types | if type=="array" then .[] else . end | select(.name=="ApexClass") | .members | if type=="array" then join("_Test,"), join(",") else . + "," + . + "_Test" end' > TEST_CLASSES
+        echo '--- TEST CLASS TO RUN ---'
+        echo '#FILE: TEST_CLASSES BF'
+        cat TEST_CLASSES
+        echo '#FILE: TEST_CLASSES AF'
+        tr '\n' , < TEST_CLASSES > TEST_CLASSES_MERGED
+        cat TEST_CLASSES_MERGED
+
+    ## 6. SETUP CREDENTIALS (SETUP YOUR URL ON SECRET)    
+    - name: 6. SETUP CREDENTIALS 
+      shell: bash
+      run: 'echo ${{ secrets.SFDX_LR_TEST_URL}} > SFDX_QA'
+
+    ## 7. AUTHENTICATE ON DEV HUB
+    - name: 7. AUTHENTICATE ON DEV HUB
+      run: node_modules/sfdx-cli/bin/run force:auth:sfdxurl:store -f SFDX_QA -s -a LRQA
+    
+    ## 8. VALIDATE DIFFERENCE FROM DELTA AND SPEC TESTS
+    - name: 8. VALIDATE BUILD ON SALESFORCE => Added & Modified files
+      run: |   
+        echo '############ VALIDATE BUILD ON BEFORE DEPLOYMENT ############'
+        node_modules/sfdx-cli/bin/run force:source:deploy -x package/package.xml -l RunSpecifiedTests -r "$(<TEST_CLASSES_MERGED)" --loglevel FATAL --checkonly
+    
+    ## 9. VALIDATE DELETING CMP
+    - name: 9. VALIDATE BUILD ON SALESFORCE => Removed files
+      run: |      
+        echo '############ VALIDATE BUILD ON BEFORE DEPLOYMENT (REMOVED FILES) ############'
+        cat destructiveChanges/destructiveChanges.xml
+        node_modules/sfdx-cli/bin/run force:mdapi:deploy -d destructiveChanges --ignorewarnings --loglevel FATAL --checkonly
+
+    ## 10. DEPLOY DIFFERENCE FROM DELTA AND SPEC TESTS
+    - name: 10. DEPLOY BUILD ON SALESFORCE => Added & Modified files
+      run: |   
+        echo '############ VALIDATE BUILD ON BEFORE DEPLOYMENT ############'
+        node_modules/sfdx-cli/bin/run force:source:deploy -x package/package.xml -l RunSpecifiedTests -r "$(<TEST_CLASSES_MERGED)" --loglevel FATAL
+
+    ## 11. CHECK REPORT FOR LAST DEPLOY
+    - name: 11. REPORT FROM DEPLOY (ADDED & MODIFIED FILES)
+      if: always()
+      run: |
+        node_modules/sfdx-cli/bin/run force:source:deploy:report --verbose
+
+    ## 12. DEPLOY DELETING CMP
+    - name: 12. DEPLOY BUILD ON SALESFORCE => Removed files
+      run: |      
+        echo '############ VALIDATE BUILD ON BEFORE DEPLOYMENT (REMOVED FILES) ############'
+        cat destructiveChanges/destructiveChanges.xml
+        node_modules/sfdx-cli/bin/run force:mdapi:deploy -d destructiveChanges --ignorewarnings --loglevel FATAL 
+        
+    ## 13. CHECK REPORT FOR LAST DEPLOY
+    - name: 13. REPORT FROM DEPLOY (REMOVED FILES)
+      if: always()
+      run: |
+        node_modules/sfdx-cli/bin/run force:source:deploy:report --verbose
+    
+    ## 14. CHECK FOR APEX TEST  -- TEST BEFORE DEPLOY TO CHECK IF EVERYTHING IS OK (DISABLED)   
+    - name: 14. RUN APEX TESTS
+      run: 
+       node_modules/sfdx-cli/bin/run force:apex:test:run --resultformat tap --codecoverage -c -r human
+   
+## -------------------------- LINKS -------------------------------- ##
+### 1. LINKS FOR USING DELTA
+##  1.1 TUTORIAL: https://www.youtube.com/watch?v=IYGMS3qI5Uk
+##  1.2 LINK FOR DELTA: https://github.com/scolladon/sfdx-git-delta
+##  1.3 LINK FOR TEACHER GIT: https://github.com/olopsman/youtube-sfdx-delta-deploy/tree/ADO-111
+### 2. LINKS WITHOU DELTA
+##  2.1 LINK FO FULL DEPLOY W/O DELTA: https://atrium.ai/resources/how-to-implement-salesforce-ci-cd-with-github-actions/
+##  2.2LINK TO GIT EXAMPLE W/O DELTA: https://gist.github.com/garvitkhandelwal-atrium/699cbb624e5d1805b9de14e99b0dc964
+      
