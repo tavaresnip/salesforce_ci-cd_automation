@@ -63,7 +63,7 @@ jobs:
     ## 6. SETUP CREDENTIALS (SETUP YOUR URL ON SECRET)    
     - name: 6. SETUP CREDENTIALS 
       shell: bash
-      run: 'echo ${{ secrets.SFDX_LR_TEST_URL}} > SFDX_QA'
+      run: 'echo ${{ secrets.SFDX_UAT}} > SFDX_QA'
 
     ## 7. AUTHENTICATE ON DEV HUB
     - name: 7. AUTHENTICATE ON DEV HUB
